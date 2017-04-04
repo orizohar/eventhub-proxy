@@ -2,7 +2,7 @@ import base64
 import hashlib
 import hmac
 import sys
-from urllib import quote as url_quote
+import urllib
 import time
 import requests
 import os
@@ -11,38 +11,26 @@ import string
 import datetime
 import json
 
-SAS_EXPIRE_SEC = 300
-
-def generateSAS(namespace, eventhub_name, keyname, keyval):
-    uri = '{0}.servicebus.windows.net'.format(namespace.lower())
-    expiry = str(int(round(time.time() + SAS_EXPIRE_SEC)))
-    to_sign = uri + '\n' + expiry
-    signed_hmac_sha256 = hmac.HMAC(keyval, to_sign, hashlib.sha256)
-    digest = signed_hmac_sha256.digest()
-    encoded = base64.b64encode(digest)
-    encoded_digest =  encoded.decode('utf-8')
-    signature = url_quote(encoded_digest, '')
-    auth_format = 'SharedAccessSignature sig={0}&se={1}&skn={2}&sr={3}'
-    auth = auth_format.format(signature, expiry, keyname, uri)
-    return auth
-
-def pretty_print_POST(req):
+def pretty_print(req):
+    """ Prints a Request object for debug/log purposes.
+    req should be a prepared Request object
     """
-    At this point it is completely built and ready
-    to be fired; it is "prepared".
-
-    However pay attention at the formatting used in 
-    this function because it is programmed to be pretty 
-    printed and may differ from the actual request.
-    """
-    print('{}\n{}\n{}\n\n{}'.format(
-        '-----------START-----------',
+    print('{}\n{}\n{}\n\n{}\n{}\n'.format(
+        '-----------Request-----------',
         req.method + ' ' + req.url,
         '\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
         req.body,
+        '-----------------------------',
     ))
 
-def generateMessage(body=None):
+def generate_message(body=None):
+    """ Generate a JSON message in the form:
+    {
+        "msg" : <16 Random characters>,
+        "timestamp" : <String with current time>
+        "id" : <Hash of above fields>
+    }
+    """
     if not body:
         body = ''.join(random.choice(string.lowercase) for i in range(16))
     time_stamp = unicode(datetime.datetime.now())
@@ -54,42 +42,82 @@ def generateMessage(body=None):
     event_msg = json.dumps(msg)
     return event_msg
 
-def send(dest, namespace, eventhub_name, keyname, keyval, msg, cert_path=None):
-    url = 'https://{0}'.format(dest)
-    headers = {
-        'Authorization' : generateSAS(namespace, eventhub_name, keyname, keyval),
-        'Content-Type': 'application/atom+xml;type=entry;charset=utf-8 ',
-        'Host' : '{0}.servicebus.windows.net'.format(namespace)
-    }
+AUTH_EXPIRE_SEC = 300
 
-    arguments = {
-        'api-version' : '2014-01', 
-        'timeout' : '60'
-    }
+class ProxyClient():
+    """ This class represents a client for sending messages to evenhub via some proxy """
 
-    req = requests.Request('POST', url=url, params=arguments, headers=headers, data=msg)
-    prepared = req.prepare()
-    pretty_print_POST(prepared)
+    def __init__(self, proxy, namespace, eh_name, keyname, keyval, cert_path=None):
+        """ Initialize the class. Arguments:
+            proxy - the DNS or IP address of the proxy
+            namespace - the event hub namespace
+            eh_name - the event hub  namespace
+            keyname - the name of the key to be used for SharedAccessSignature
+            keyvalue - the key to be used for SharedAccessSignature
+        """
+        self.proxy = proxy
+        self.namespace = namespace
+        self.eh_name = eh_name
+        self.keyname = keyname
+        self.keyval = keyval
+        self.cert_verify = cert_path or True
+        
+    def generate_auth(self):
+        """ Generate the Authorization header to be sent to event hub"""
+        uri = '{0}.servicebus.windows.net'.format(self.namespace.lower())
+        expiry = str(int(round(time.time() + AUTH_EXPIRE_SEC)))
+        to_sign = uri + '\n' + expiry
+        signed_hmac_sha256 = hmac.HMAC(self.keyval, to_sign, hashlib.sha256)
+        digest = signed_hmac_sha256.digest()
+        encoded = base64.b64encode(digest)
+        encoded_digest =  encoded.decode('utf-8')
+        signature = urllib.quote(encoded_digest, '')
+        auth_format = 'SharedAccessSignature sig={0}&se={1}&skn={2}&sr={3}'
+        auth = auth_format.format(signature, expiry, self.keyname, uri)
+        return auth
 
-    s = requests.Session()
+    def send(self, msg):
+        """ Send the HTTP POST request to the proxy. 
+            Note that the HTTP request is sent to the proxy but the Host header and SAS uses the event hub namespace FQDN
+        """
+        url = 'https://{0}'.format(self.proxy) + '/{0}/messages'.format(self.eh_name)
+        headers = {
+            'Authorization' : self.generate_auth(),
+            'Content-Type': 'application/atom+xml;type=entry;charset=utf-8 ',
+            'Host' : '{0}.servicebus.windows.net'.format(self.namespace)
+        }
+        arguments = {
+            'api-version' : '2014-01', 
+            'timeout' : '60'
+        }
+        req = requests.Request('POST', url=url, params=arguments, headers=headers, data=msg)
+        prepared = req.prepare()
+        pretty_print(prepared)
+        s = requests.Session()
+        r = s.send(prepared, verify=self.cert_verify)
+        return r.status_code
 
-    # If no certificate path is given just set verify to True for certificate verification against installed CA
-    cert_verify = cert_path or True
-    r = s.send(prepared, verify=cert_verify)
-
-    print r.status_code
-    print r.text
-
-if __name__ == '__main__':
+def main():
     proxy = os.getenv('EH_PROXY_DNS')
     namespace = os.getenv('SB_NAMESPACE')
-    eventhub_name = os.getenv('EH_NAME')
+    eh_name = os.getenv('EH_NAME')
     keyname = os.getenv('SB_KEYNAME')
     keyval = os.getenv('SB_KEYVAL')
-    cert_path = 'proxy\cert\cert.crt'
+    cert_path = os.getenv('EH_PROXY_CERT_PATH')
 
-    msg = generateMessage()
+    if (not proxy) or (not namespace) or (not eh_name) or (not keyname) or (not keyval): 
+        print 'Missing env vars. Please make sure the following are defined:'
+        print '\tEH_PROXY_DNS : IP or DNS of proxy.'
+        print '\tSB_NAMESPACE : Service bus namespace for event hub'
+        print '\tEH_NAME : Event hub name'
+        print '\tSB_KEYNAME : SAS access key name'
+        print '\tSB_KEYVAL : SAS access key value'
+        exit(1)
 
-    proxy += '/{0}/messages'.format(eventhub_name)
+    pc = ProxyClient(proxy, namespace, eh_name, keyname, keyval, cert_path)
+    msg = generate_message()
+    ret = pc.send(msg)
+    print 'Send status: {0}'.format(ret)
 
-    send(proxy, namespace, eventhub_name, keyname, keyval, msg, cert_path)
+if __name__ == '__main__':
+    main()
