@@ -21,7 +21,13 @@
         "vmss_name" : "proxyvmss",
         "vnet_name" : "proxyvmssVNET",
         "lb_name" : "proxyvmssLB",
-        "lbipconfig_uri" : "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), '/frontendIPConfigurations/loadBalancerFrontEnd')]"
+        "lbipconfig_uri" : "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), '/frontendIPConfigurations/loadBalancerFrontEnd')]",
+        "lbbackendpool_name" : "vmssBackendPool",
+        "lbbackendpool_uri" : "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), concat('/backendAddressPools/', variables('lbbackendpool_name')))]",
+        "lbprobe1_name" : "p1",
+        "lbprobe2_name" : "p2",
+        "lbprobe1_uri" : "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), '/probes/', variables('lbprobe1_name'))]",
+        "lbprobe2_uri" : "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), '/probes/', variables('lbprobe2_name'))]"
     },
     "resources": [
         {
@@ -78,7 +84,7 @@
                                                 },
                                                 "loadBalancerBackendAddressPools": [
                                                     {
-                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), concat('/backendAddressPools/', variables('vmss_name'),'LBBEPool'))]"
+                                                        "id": "[variables('lbbackendpool_uri')]"
                                                     }
                                                 ],
                                                 "loadBalancerInboundNatPools": [
@@ -122,11 +128,72 @@
                 ],
                 "backendAddressPools": [
                     {
-                        "name": "[concat(variables('lb_name'),'BEPool')]"
+                        "name": "[variables('lbbackendpool_name')]"
                     }
                 ],
-                "loadBalancingRules": [],
-                "probes": [],
+                "loadBalancingRules": [
+                    {
+                        "name": "HttpRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[variables('lbipconfig_uri')]"
+                            },
+                            "frontendPort": 80,
+                            "backendPort": 80,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 4,
+                            "protocol": "Tcp",
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[variables('lbbackendpool_uri')]"
+                            },
+                            "probe": {
+                                "id": "[variables('lbprobe1_uri')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "HttpsRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id":  "[variables('lbipconfig_uri')]"
+                            },
+                            "frontendPort": 443,
+                            "backendPort": 443,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 4,
+                            "protocol": "Tcp",
+                            "loadDistribution": "Default",
+                            "backendAddressPool": {
+                                "id": "[variables('lbbackendpool_uri')]"
+                            },
+                            "probe": {
+                                 "id": "[variables('lbprobe2_uri')]"
+                            }
+                        }
+                    }
+                ],
+                "probes": [
+                    {
+                        "name": "[variables('lbprobe1_name')]",
+                        "properties": {
+                            "protocol": "Http",
+                            "port": 80,
+                            "requestPath": "/",
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    },
+                    {
+                        "name": "[variables('lbprobe2_name')]",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": 443,
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    }
+                ],
                 "outboundNatRules": [],
                 "inboundNatPools": [
                     {
