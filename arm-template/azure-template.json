@@ -1,0 +1,173 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "username": {
+            "type": "String"
+        },
+        "password": {
+            "type": "securestring"
+        },
+        "vm_image_uri": {
+            "type": "String"
+        },
+        "public_ip_uri": {
+            "type": "String"
+        }
+    },
+    "variables": {
+        "instance_count" : 2,
+        "instance_size" : "Standard_D1_v2",
+        "vmss_name" : "proxyvmss",
+        "vnet_name" : "proxyvmssVNET",
+        "lb_name" : "proxyvmssLB",
+        "lbipconfig_uri" : "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), '/frontendIPConfigurations/loadBalancerFrontEnd')]"
+    },
+    "resources": [
+        {
+            "comments": "The VM Scale Set running the proxy",
+            "type": "Microsoft.Compute/virtualMachineScaleSets",
+            "sku": {
+                "name": "[variables('instance_size')]",
+                "tier": "Standard",
+                "capacity": "[variables('instance_count')]"
+            },
+            "name": "[variables('vmss_name')]",
+            "apiVersion": "2016-04-30-preview",
+            "location": "westeurope",
+            "tags": {},
+            "properties": {
+                "singlePlacementGroup": true,
+                "upgradePolicy": {
+                    "mode": "Manual"
+                },
+                "virtualMachineProfile": {
+                    "osProfile": {
+                        "computerNamePrefix": "proxypybo",
+                        "adminUsername": "[parameters('username')]",
+                        "adminPassword": "[parameters('password')]",
+                        "linuxConfiguration": {
+                            "disablePasswordAuthentication": false
+                        },
+                        "secrets": []
+                    },
+                    "storageProfile": {
+                        "osDisk": {
+                            "createOption": "FromImage",
+                            "caching": "ReadWrite",
+                            "managedDisk": {
+                                "storageAccountType": "Standard_LRS"
+                            }
+                        },
+                        "imageReference": {
+                            "id": "[parameters('vm_image_uri')]"
+                        }
+                    },
+                    "networkProfile": {
+                        "networkInterfaceConfigurations": [
+                            {
+                                "name": "proxypyboNic",
+                                "properties": {
+                                    "primary": true,
+                                    "ipConfigurations": [
+                                        {
+                                            "name": "proxypyboIPConfig",
+                                            "properties": {
+                                                "subnet": {
+                                                    "id": "[concat(resourceId('Microsoft.Network/virtualNetworks', variables('vnet_name')), concat('/subnets/', variables('vmss_name'),'Subnet'))]"
+                                                },
+                                                "loadBalancerBackendAddressPools": [
+                                                    {
+                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), concat('/backendAddressPools/', variables('vmss_name'),'LBBEPool'))]"
+                                                    }
+                                                ],
+                                                "loadBalancerInboundNatPools": [
+                                                    {
+                                                        "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('lb_name')), concat('/inboundNatPools/', variables('vmss_name'),'LBNatPool'))]"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "overprovision": true
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('vnet_name'))]",
+                "[resourceId('Microsoft.Network/loadBalancers', variables('lb_name'))]"
+            ]
+        },
+        {
+            "comments": "The Load balancer fronting the proxy VMSS",
+            "type": "Microsoft.Network/loadBalancers",
+            "name": "[variables('lb_name')]",
+            "apiVersion": "2016-03-30",
+            "location": "westeurope",
+            "tags": {},
+            "properties": {
+                "frontendIPConfigurations": [
+                    {
+                        "name": "loadBalancerFrontEnd",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[parameters('public_ip_uri')]"
+                            }
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "[concat(variables('lb_name'),'BEPool')]"
+                    }
+                ],
+                "loadBalancingRules": [],
+                "probes": [],
+                "outboundNatRules": [],
+                "inboundNatPools": [
+                    {
+                        "name": "[concat(variables('lb_name'),'NatPool')]",
+                        "properties": {
+                            "frontendPortRangeStart": 50000,
+                            "frontendPortRangeEnd": 50119,
+                            "backendPort": 22,
+                            "protocol": "Tcp",
+                            "frontendIPConfiguration": {
+                                "id": "[variables('lbipconfig_uri')]"
+                            }
+                        }
+                    }
+                ]
+            },
+            "dependsOn": []
+        },
+        {
+            "comments": "The VMSS Virtual network",
+            "type": "Microsoft.Network/virtualNetworks",
+            "name": "[variables('vnet_name')]",
+            "apiVersion": "2016-03-30",
+            "location": "westeurope",
+            "tags": {},
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.0.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "proxyvmssSubnet",
+                        "properties": {
+                            "addressPrefix": "10.0.0.0/24"
+                        }
+                    }
+                ]
+            },
+            "dependsOn": []
+        }
+    ]
+}
