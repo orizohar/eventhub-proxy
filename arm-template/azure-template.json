@@ -40,7 +40,7 @@
             },
             "name": "[variables('vmss_name')]",
             "apiVersion": "2016-04-30-preview",
-            "location": "westeurope",
+            "location": "[resourceGroup().location]",
             "tags": {},
             "properties": {
                 "singlePlacementGroup": true,
@@ -112,7 +112,7 @@
             "type": "Microsoft.Network/loadBalancers",
             "name": "[variables('lb_name')]",
             "apiVersion": "2016-03-30",
-            "location": "westeurope",
+            "location": "[resourceGroup().location]",
             "tags": {},
             "properties": {
                 "frontendIPConfigurations": [
@@ -217,7 +217,7 @@
             "type": "Microsoft.Network/virtualNetworks",
             "name": "[variables('vnet_name')]",
             "apiVersion": "2016-03-30",
-            "location": "westeurope",
+            "location": "[resourceGroup().location]",
             "tags": {},
             "properties": {
                 "addressSpace": {
