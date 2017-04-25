@@ -192,6 +192,9 @@ The python application proxy expects the following environment variables to be d
 - **SB_KEYNAME** : SAS access key name
 - **SB_KEYVAL** : SAS access key value
 
+Optionally, if you are using self-signed certificates, you can provide the path to them so the request to the proxy will pass the certificate check:
+- **EH_PROXY_CERT_PATH** : Path to the certificate file
+
 (This reference code does not use the Azure event hub SDK because of the use of the proxy)
 
 ## Resources: ##
