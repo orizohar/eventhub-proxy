@@ -1,6 +1,7 @@
 server {
         listen 443 ssl;
-        server_name eventhubproxy001.westeurope.cloudapp.azure.com;
+        # Replace the [PROXY-PUBLIC-IP] with the public IP you created for the proxy. e.g. 13.95.22.45
+        server_name [PROXY-PUBLIC-IP];
 
         ssl_certificate /etc/nginx/ssl/cert.crt;
         ssl_certificate_key /etc/nginx/ssl/cert.key;
@@ -16,7 +17,8 @@ server {
         proxy_pass_request_headers on;
 
         location / {
-                proxy_pass      https://myeventhub001.servicebus.windows.net;
+                # Replace the [EVENT-HUB-FQDN] with the URL of your event hub. e.g. https://myeventhub001.servicebus.windows.net
+                proxy_pass      [EVENT-HUB-FQDN];
                 proxy_read_timeout 90;
         }
 }
